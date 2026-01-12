@@ -1,0 +1,141 @@
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "COMP490 - Serverless Docling PDF/DOCX to Markdown converter"
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: "Globally-unique S3 bucket name (e.g. docling-converter-yourname-12345)"
+
+  EcrRepoName:
+    Type: String
+    Default: "docling-converter"
+    Description: "Existing ECR repository name containing the Lambda image"
+
+  ImageTag:
+    Type: String
+    Default: "v2"
+    Description: "ECR image tag to deploy (must exist before stack create)"
+
+  LambdaMemoryMB:
+    Type: Number
+    Default: 3008
+    AllowedValues: [1024, 1536, 1792, 2048, 2304, 2560, 3008]
+
+  LambdaTimeoutSec:
+    Type: Number
+    Default: 900
+    MinValue: 30
+    MaxValue: 900
+
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653]
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DoclingConverterPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadInput
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${BucketName}/input/*"
+
+              - Sid: WriteOutput
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${BucketName}/output/*"
+
+              - Sid: ListBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${BucketName}"
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - "input/*"
+                      - "output/*"
+
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  ConverterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "docling-converter-${AWS::StackName}"
+      PackageType: Image
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ImageUri: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepoName}:${ImageTag}"
+      MemorySize: !Ref LambdaMemoryMB
+      Timeout: !Ref LambdaTimeoutSec
+      EphemeralStorage:
+        Size: 2048
+      Environment:
+        Variables:
+          OUTPUT_PREFIX: "output/"
+          INPUT_PREFIX: "input/"
+          LOG_LEVEL: "INFO"
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ConverterFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "s3.amazonaws.com"
+      SourceArn: !Sub "arn:aws:s3:::${BucketName}"
+
+  DocBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: LambdaInvokePermission
+    Properties:
+      BucketName: !Ref BucketName
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: input/
+            Function: !GetAtt ConverterFunction.Arn
+
+  ConverterLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ConverterFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
+Outputs:
+  BucketNameOut:
+    Description: "S3 bucket for input/ and output/"
+    Value: !Ref BucketName
+
+  EcrRepoUri:
+    Description: "ECR repository URI (image already pushed here)"
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepoName}"
+
+  LambdaName:
+    Description: "Lambda function name"
+    Value: !Ref ConverterFunction
