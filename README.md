@@ -192,3 +192,4 @@ Optional DynamoDB job table: store job status + timestamps (still simple).
 Compression: gzip markdown before storing for large outputs.
 
 Security hardening: block public access on S3, enable bucket encryption, add lifecycle policy to expire old input/output files.
+
