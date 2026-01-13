@@ -11,16 +11,16 @@ from botocore.exceptions import ClientError
 SUPPORTED = (".pdf", ".docx")
 
 
-def to_output_key(filename: str) -> str:
+def to_output_keys(filename: str):
     base = os.path.basename(filename)
     root, _ = os.path.splitext(base)
-    return f"output/{root}.md"
+    return f"output/{root}.md", f"output/{root}.error.txt"
 
 
 def upload_and_wait(s3, bucket: str, filepath: str, poll_sec: float, timeout_sec: int):
     base = os.path.basename(filepath)
     in_key = f"input/{base}"
-    out_key = to_output_key(filepath)
+    out_key, err_key = to_output_keys(filepath)
 
     print(f"[+] Uploading {filepath} -> s3://{bucket}/{in_key}")
     s3.upload_file(filepath, bucket, in_key)
@@ -32,8 +32,9 @@ def upload_and_wait(s3, bucket: str, filepath: str, poll_sec: float, timeout_sec
 
     while True:
         if time.time() - start > timeout_sec:
-            raise TimeoutError(f"Timed out waiting for {out_key}")
+            raise TimeoutError(f"Timed out waiting for {out_key} (or {err_key})")
 
+        # success?
         try:
             s3.head_object(Bucket=bucket, Key=out_key)
             break
@@ -41,9 +42,23 @@ def upload_and_wait(s3, bucket: str, filepath: str, poll_sec: float, timeout_sec
             code = e.response.get("Error", {}).get("Code", "")
             if code not in ("404", "NoSuchKey", "NotFound"):
                 raise
-            print(f"\r    {spinner[idx % len(spinner)]} still converting...", end="", flush=True)
-            idx += 1
-            time.sleep(poll_sec)
+
+        # error?
+        try:
+            s3.head_object(Bucket=bucket, Key=err_key)
+            local_err = os.path.join(os.getcwd(), os.path.basename(err_key))
+            s3.download_file(bucket, err_key, local_err)
+            with open(local_err, "r", encoding="utf-8", errors="ignore") as f:
+                msg = f.read().strip()
+            raise RuntimeError(f"Conversion failed. Error file downloaded: {local_err}\n{msg}")
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code not in ("404", "NoSuchKey", "NotFound"):
+                raise
+
+        print(f"\r    {spinner[idx % len(spinner)]} still converting...", end="", flush=True)
+        idx += 1
+        time.sleep(poll_sec)
 
     print("\r    ✓ conversion complete            ")
 
