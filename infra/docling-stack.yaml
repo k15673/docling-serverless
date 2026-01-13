@@ -1,4 +1,3 @@
-
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "COMP490 - Serverless Docling PDF/DOCX to Markdown converter"
 
@@ -51,20 +50,17 @@ Resources:
             Statement:
               - Sid: ReadInput
                 Effect: Allow
-                Action:
-                  - s3:GetObject
+                Action: [s3:GetObject]
                 Resource: !Sub "arn:aws:s3:::${BucketName}/input/*"
 
               - Sid: WriteOutput
                 Effect: Allow
-                Action:
-                  - s3:PutObject
+                Action: [s3:PutObject]
                 Resource: !Sub "arn:aws:s3:::${BucketName}/output/*"
 
               - Sid: ListBucket
                 Effect: Allow
-                Action:
-                  - s3:ListBucket
+                Action: [s3:ListBucket]
                 Resource: !Sub "arn:aws:s3:::${BucketName}"
                 Condition:
                   StringLike:
@@ -111,6 +107,15 @@ Resources:
     DependsOn: LambdaInvokePermission
     Properties:
       BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       NotificationConfiguration:
         LambdaConfigurations:
           - Event: s3:ObjectCreated:*
@@ -139,3 +144,4 @@ Outputs:
   LambdaName:
     Description: "Lambda function name"
     Value: !Ref ConverterFunction
+
