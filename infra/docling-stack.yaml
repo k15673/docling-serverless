@@ -13,7 +13,7 @@ Parameters:
 
   ImageTag:
     Type: String
-    Default: "v2"
+    Default: "v9"
     Description: "ECR image tag to deploy (must exist before stack create)"
 
   LambdaMemoryMB:
@@ -50,17 +50,17 @@ Resources:
             Statement:
               - Sid: ReadInput
                 Effect: Allow
-                Action: [s3:GetObject]
+                Action: ["s3:GetObject"]
                 Resource: !Sub "arn:aws:s3:::${BucketName}/input/*"
 
               - Sid: WriteOutput
                 Effect: Allow
-                Action: [s3:PutObject]
+                Action: ["s3:PutObject"]
                 Resource: !Sub "arn:aws:s3:::${BucketName}/output/*"
 
               - Sid: ListBucket
                 Effect: Allow
-                Action: [s3:ListBucket]
+                Action: ["s3:ListBucket"]
                 Resource: !Sub "arn:aws:s3:::${BucketName}"
                 Condition:
                   StringLike:
@@ -105,26 +105,19 @@ Resources:
   DocBucket:
     Type: AWS::S3::Bucket
     DependsOn: LambdaInvokePermission
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Ref BucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        IgnorePublicAcls: true
-        BlockPublicPolicy: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
       NotificationConfiguration:
         LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
+          - Event: "s3:ObjectCreated:*"
+            Function: !GetAtt ConverterFunction.Arn
             Filter:
               S3Key:
                 Rules:
                   - Name: prefix
                     Value: input/
-            Function: !GetAtt ConverterFunction.Arn
 
   ConverterLogGroup:
     Type: AWS::Logs::LogGroup
@@ -138,10 +131,9 @@ Outputs:
     Value: !Ref BucketName
 
   EcrRepoUri:
-    Description: "ECR repository URI (image already pushed here)"
+    Description: "ECR repository URI"
     Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepoName}"
 
   LambdaName:
     Description: "Lambda function name"
     Value: !Ref ConverterFunction
-
